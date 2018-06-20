@@ -1,25 +1,20 @@
 #include <FastLED.h>
 #include <plasma.h>
 
-#define OUTER_RING_LED_PIN     10
-#define OUTER_RING_COLOR_ORDER BRG
-#define OUTER_RING_CHIPSET     WS2811
-#define OUTER_RING_NUM_LEDS    46
+#define BRIGHTNESS  255
+#define FRAMES_PER_SECOND 200
 
-#define INNER_RING_LED_PIN      9
-#define INNER_RING_COLOR_ORDER  GRB
-#define INNER_RING_CHIPSET      WS2812
-#define INNER_RING_NUM_LEDS     12
+// Tweak these values for sensor response
+#define SENSOR_SCALING 0.6 
+#define SENSOR_THRESHOLD 30
+#define SENSOR_GROWTH_INTENSITY 0.125
 
-#define BRIGHTNESS  200
-#define FRAMES_PER_SECOND 120
-
+// Global palette
 CRGBPalette16 gPalette;
-long frameCount = 100;
-
-// Color arrays for the outer ring of 12V and the inner Neopixel ring
-CRGB leds[OUTER_RING_NUM_LEDS];
-CRGB innerLeds[INNER_RING_NUM_LEDS];
+#define PALETTE_COLOR1 CRGB(50, 30, 0)
+#define PALETTE_COLOR2 CRGB::Yellow
+#define PALETTE_COLOR3 CRGB::Green
+#define PALETTE_COLOR4 CRGB::SeaGreen
 
 // The LED addresses closest to the six sensors
 int sensorLocations[6] = {
@@ -31,9 +26,26 @@ int sensorLocations[6] = {
     21  // verified
 };
 
+// LED strip pin and data format configuration
+#define OUTER_RING_LED_PIN      10
+#define OUTER_RING_COLOR_ORDER  BRG
+#define OUTER_RING_CHIPSET      WS2811
+#define OUTER_RING_NUM_LEDS     46
+#define INNER_RING_LED_PIN      9
+#define INNER_RING_COLOR_ORDER  GRB
+#define INNER_RING_CHIPSET      WS2812
+#define INNER_RING_NUM_LEDS     12
+
+// Color arrays for the outer ring of 12V and the inner Neopixel ring
+CRGB leds[OUTER_RING_NUM_LEDS];
+CRGB innerLeds[INNER_RING_NUM_LEDS];
+
 // Cellular automata array for the outer ring, plus previous frame for averaging
 static int cells[OUTER_RING_NUM_LEDS];
 static int lastFrameCells[OUTER_RING_NUM_LEDS];
+
+// Frame counter for plasma animation
+long frameCount = 0;
 
 // Reduce noise from the IR sensors
 static float integrateSensor(int index)
@@ -42,7 +54,7 @@ static float integrateSensor(int index)
     static uint32_t lastTime[6];
     uint32_t now = micros();
 
-    float value = analogRead(index) * 0.6;
+    float value = analogRead(index) * SENSOR_SCALING;
     float dt = (now - lastTime[index]) * 1e-6; 
     lastValue[index] += (value - lastValue[index]) * dt;
 
@@ -56,7 +68,7 @@ void setup() {
   FastLED.addLeds<INNER_RING_CHIPSET, INNER_RING_LED_PIN, INNER_RING_COLOR_ORDER>(innerLeds, INNER_RING_NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.setBrightness(BRIGHTNESS);
 
-  gPalette = CRGBPalette16(CRGB(50, 30, 0), CRGB::Yellow, CRGB::Green, CRGB::SeaGreen);
+  gPalette = CRGBPalette16(PALETTE_COLOR1, PALETTE_COLOR2, PALETTE_COLOR3, PALETTE_COLOR4);
 }
 
 void loop()
@@ -101,8 +113,8 @@ void loop()
         float sensor = integrateSensor(i);
         int origin = sensorLocations[i];
       
-        if (sensor > 30) {
-          cells[origin] += (sensor - 30) / 8.0;
+        if (sensor > SENSOR_THRESHOLD) {
+          cells[origin] += (sensor - SENSOR_THRESHOLD) * SENSOR_GROWTH_INTENSITY;
         }
     }
 
@@ -127,8 +139,10 @@ void loop()
         val = (lastFrameCells[i] + val) / 2;
         lastFrameCells[i] = val;
 
-        // Palette lookup and scaling
+        // Convert value to RGB color from the palette
         CRGB color = ColorFromPalette(gPalette, val);
+
+        // Dim pixel slightly with plasma animation to keep it interesting 
         byte p = plasma(frameCount, i, 1);
         color.r = scale8_video(color.r, dim8_video(p));
         color.g = scale8_video(color.g, dim8_video(p));
